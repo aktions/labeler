@@ -1,34 +1,66 @@
 import * as core from "@actions/core";
-import { Minimatch } from "minimatch";
+import { GitHub, context } from "@actions/github";
+import { Configuration } from "./configuration";
 
-export function getLabels(
-  labelGlobs: Map<string, string[]>,
-  files: string[]
-): string[] {
-  const labels = new Set<string>();
+export class Labeler {
 
-  for (const [label, globs] of labelGlobs.entries()) {
-    core.debug(`processing ${label}`);
-    for (const glob of globs) {
-      core.debug(` checking pattern ${glob}`);
-      const matcher = new Minimatch(glob);
-      for (const file of files) {
-        core.debug(` - ${file}`);
-        if (matcher.match(file)) {
-          core.debug(` ${file} matches glob ${glob}`);
-          labels.add(label);
-          continue;
-        }
-        try {
-          const regex = new RegExp(glob);
-          if (file.match(regex)) {
-            core.debug(` ${file} matches regex ${regex}`);
-            labels.add(file.replace(regex, label));
-          }
-        } catch {}
-      }
-    }
+  private github: GitHub | undefined;
+
+  constructor(github?: GitHub) {
+    this.github = github;
   }
 
-  return Array.from(labels);
+  async diff(): Promise<string[]> {
+
+    const response = await this.github!.pulls.listFiles({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      pull_number: this.getPullRequestNumber()
+    });
+
+    core.debug("found changed files:");
+    return response.data.map(f => {
+      core.debug("  " + f.filename);
+      return f.filename
+    });
+  }
+
+  match(config: Configuration, files: string[]): string[] {
+    const labels = new Set<string>();
+
+    for (const [label, matchers] of config) {
+      for (const matcher of matchers) {
+        core.debug(` checking ${matcher}`);
+        for (const file of files) {
+          if (matcher.match(file)) {
+            const replaced = matcher.replace(file, label);
+            labels.add(replaced);
+            core.debug(` - ${file} [${replaced}]`);
+          } else {
+            core.debug(` - ${file}`);
+          }
+        }
+      }
+    }
+
+    return Array.from(labels);
+  }
+
+  getPullRequestNumber(): number {
+    const pullRequest = context.payload.pull_request;
+    if (!pullRequest) {
+      throw Error(`pull request not found`);
+    }
+    return pullRequest.number;
+  }
+
+  async addLabels(labels: string[]) {
+    await this.github!.issues.addLabels({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: this.getPullRequestNumber(),
+      labels: labels
+    });
+  }
 }
+

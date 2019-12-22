@@ -1,8 +1,8 @@
-name: 'Pull Request Labeler'
+name: 'Label Pull Requests'
 description: 'Label pull requests by files altered'
 author: 'aktions'
 inputs: 
-  repo-token:
+  github-token:
     description: 'The GITHUB_TOKEN secret'
     required: true
   configuration-path:
